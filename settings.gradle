@@ -1,0 +1,3 @@
+rootProject.name='cameraX_wrapper'
+include ':app'
+include ':camerax_fragment'
