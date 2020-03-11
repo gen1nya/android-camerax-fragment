@@ -1,5 +1,3 @@
-# android-camerax-fragment
-camerax library demo app + fragmen-wrapper
 
 ## cameraX beta01 demo app and simple library
 
