@@ -27,7 +27,7 @@ allprojects {
 2. Add the dependency
 ```
 dependencies {
-  implementation 'com.github.gen1nya:android-camerax-fragment:-SNAPSHOT'
+  implementation 'com.github.gen1nya:android-camerax-fragment:v0.2'
 }
   ```
 
