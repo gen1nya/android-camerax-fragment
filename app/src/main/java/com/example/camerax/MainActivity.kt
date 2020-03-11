@@ -10,7 +10,6 @@ import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.camerax_fragment.CameraFragment
-import com.example.camerax_fragment.R
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
 
