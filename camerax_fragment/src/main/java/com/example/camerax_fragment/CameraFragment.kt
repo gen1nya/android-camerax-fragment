@@ -3,7 +3,6 @@ package com.example.camerax_fragment
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.graphics.PointF
 import android.os.Build
 import android.os.Bundle
 import android.util.Size
@@ -23,61 +22,96 @@ class CameraFragment : Fragment() {
 
     companion object {
         private const val PERMISSION_REQUEST_CODE = 45627
+
+        fun newInstance(
+            cameraListener: CameraListener
+        ) : CameraFragment = CameraFragment().apply {
+            this.listener = cameraListener
+        }
     }
 
-    interface OnPictureTakenListener {
+    /**
+     * listener to receive camera events
+     * */
+    interface CameraListener {
         fun onImageTaken(image: ByteArray)
-        fun onError()
+        fun onError(exception: Exception)
         fun onPermissionDenied()
     }
 
+    /**
+     * set linear zoom in range from 0 to 100. Can be used to zoom seekbar.
+     * to pinch-to-zoom you need [CameraControl.setZoomRatio]
+     * */
     @IntRange(from = 0, to = 100)
     var zoom: Int = 0
         set(value) {
-            cameraControl.setLinearZoom(value.toFloat() / 100.toFloat())
+            cameraControl?.setLinearZoom(value.toFloat() / 100.toFloat())
             field = value
         }
 
+    /**
+     * flashlight
+     * */
     var flash: Boolean = false
 
+    //TODO WIP
     private val targetResolution = Size(720, 1280)
 
+    /**
+     * image capture usecase
+     * */
     private lateinit var imageCapture: ImageCapture
-    private lateinit var cameraControl: CameraControl
 
-    var imageTakeListener: OnPictureTakenListener? = null
+    /**
+     * camera control can be used to set zoom, focus and other camera features
+     * */
+    private var cameraControl: CameraControl? = null
+
+    private val cameraSelector = CameraSelector.Builder()
+        .requireLensFacing(CameraSelector.LENS_FACING_BACK)
+        .build()
+
+    private var listener: CameraListener? = null
+
+    fun setCameraListener(listener: CameraListener) {
+        this.listener = listener
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? = inflater.inflate(R.layout.fragment_camera, container, false)
+    ): View = inflater.inflate(R.layout.fragment_camera, container, false)
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        if (isPermissionGranted(Manifest.permission.CAMERA)) {
+    override fun onResume() {
+        super.onResume()
+        if (Manifest.permission.CAMERA.isPermissionGranted()) {
             view_finder.post {
                 bindCameraUseCases()
+                setUpTapToFocus()
             }
         } else {
             requestPermissions()
         }
-        setUpTapToFocus()
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setUpTapToFocus() {
-        view_finder.setOnTouchListener { _, event ->
+        view_finder.setOnTouchListener { view, event ->
             if (event.action != MotionEvent.ACTION_UP) {
                 return@setOnTouchListener false
             }
 
-            val factory = object: MeteringPointFactory() {
-                override fun convertPoint(x: Float, y: Float): PointF = PointF(x, y)
-            }
+            val factory = DisplayOrientedMeteringPointFactory(
+                view.display, // TODO testing required
+                cameraSelector,
+                view.width.toFloat(),
+                view.height.toFloat()
+            )
             val point = factory.createPoint(event.x, event.y)
             val action = FocusMeteringAction.Builder(point).build()
-            cameraControl.startFocusAndMetering(action)
+            cameraControl?.startFocusAndMetering(action)
             return@setOnTouchListener true
         }
     }
@@ -91,8 +125,9 @@ class CameraFragment : Fragment() {
         if (requestCode != PERMISSION_REQUEST_CODE) return
         if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
             bindCameraUseCases()
+            setUpTapToFocus()
         } else {
-            imageTakeListener?.onPermissionDenied()
+            listener?.onPermissionDenied()
         }
     }
 
@@ -103,38 +138,32 @@ class CameraFragment : Fragment() {
             PERMISSION_REQUEST_CODE
         )
     }
-
-    private fun isPermissionGranted(permission: String): Boolean =
+    // so, this work only on permission strings (Manifest.permission). Ну а что вы хотели?
+    private fun String.isPermissionGranted(): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-            requireContext().checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+            requireContext().checkSelfPermission(this) == PackageManager.PERMISSION_GRANTED
         else
             true
 
     fun takePicture() {
         val photoFile = File(requireContext().filesDir, "temp.jpg")
         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-        if (flash) cameraControl.enableTorch(true)
+        if (flash) cameraControl?.enableTorch(true)
         imageCapture.takePicture(outputOptions, ContextCompat.getMainExecutor(requireContext()),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    cameraControl.enableTorch(false)
-                    imageTakeListener?.onImageTaken(photoFile.readBytes())
+                    cameraControl?.enableTorch(false)
+                    listener?.onImageTaken(photoFile.readBytes())
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    cameraControl.enableTorch(false)
-                    imageTakeListener?.onError()
-                    exception.printStackTrace()
+                    cameraControl?.enableTorch(false)
+                    listener?.onError(exception)
                 }
             })
     }
 
     private fun bindCameraUseCases() {
-        val cameraSelector = CameraSelector
-            .Builder()
-            .requireLensFacing(CameraSelector.LENS_FACING_BACK)
-            .build()
-
         val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
         val rotation = view_finder.display.rotation
         cameraProviderFuture.addListener(Runnable {
@@ -162,7 +191,7 @@ class CameraFragment : Fragment() {
                 )
                 cameraControl = camera.cameraControl
             } catch (e: Exception) {
-                e.printStackTrace()
+                listener?.onError(e)
             }
         }, ContextCompat.getMainExecutor(requireContext()))
     }
